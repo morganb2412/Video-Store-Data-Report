@@ -1,0 +1,79 @@
+CREATE OR REPLACE FUNCTION full_name(first_name VARCHAR(255), last_name VARCHAR(255))
+RETURNS VARCHAR(511) AS
+$$
+BEGIN
+    RETURN first_name || ' ' || last_name;
+END;
+$$
+LANGUAGE plpgsql;
+
+DROP TABLE IF EXISTS detail_table;
+CREATE TABLE detail_table(
+	customer_name VARCHAR(255),
+	city VARCHAR(255),
+	country VARCHAR(255),
+	number_rentals INT);
+
+DROP TABLE IF EXISTS top_renting_customers;
+CREATE TABLE top_renting_customers(
+	customer_name VARCHAR(255),
+	number_rentals INT);
+
+INSERT INTO detail_table
+SELECT
+    full_name(cu.first_name, cu.last_name) AS customer_name,
+    ci.city AS city,
+    co.country AS country,
+    COUNT(r.rental_id) AS number_rentals
+FROM rental AS r
+JOIN customer AS cu ON cu.customer_id = r.customer_id
+JOIN address AS a ON a.address_id = cu.address_id
+JOIN city AS ci ON a.city_id = ci.city_id
+JOIN country AS co ON ci.country_id = co.country_id
+GROUP BY cu.first_name, cu.last_name, ci.city, co.country
+ORDER BY COUNT(r.rental_id) DESC;
+
+CREATE OR REPLACE FUNCTION  enter_new_summary()
+ RETURNS TRIGGER
+ LANGUAGE plpgsql
+ AS $$
+ BEGIN 
+ 	DELETE FROM top_renting_customers;
+	INSERT INTO top_renting_customers
+	SELECT customer_name, number_rentals
+	FROM detail_table
+	GROUP BY customer_name, number_rentals
+	ORDER BY number_rentals DESC
+	LIMIT 10; 
+	RETURN NEW; 
+END; $$
+
+CREATE TRIGGER mos_rent_customers
+AFTER INSERT 
+ON detail_table 
+FOR EACH STATEMENT 
+	EXECUTE PROCEDURE enter_new_summary();
+CREATE OR REPLACE PROCEDURE data_refresh()
+LANGUAGE plpgsql
+AS $$
+DECLARE
+
+BEGIN 
+	DELETE FROM detail_table;
+	DELETE FROM top_renting_customers;
+	
+	INSERT INTO detail_table
+SELECT
+    full_name(cu.first_name, cu.last_name) AS customer_name,
+    ci.city AS city,
+    co.country AS country,
+    COUNT(r.rental_id) AS number_rentals
+FROM rental AS r
+JOIN customer AS cu ON cu.customer_id = r.customer_id
+JOIN address AS a ON a.address_id = cu.address_id
+JOIN city AS ci ON a.city_id = ci.city_id
+JOIN country AS co ON ci.country_id = co.country_id
+GROUP BY cu.first_name, cu.last_name, ci.city, co.country
+ORDER BY COUNT(r.rental_id) DESC;
+	
+END; $$
